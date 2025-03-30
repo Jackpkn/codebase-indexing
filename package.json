@@ -7,19 +7,67 @@
     "vscode": "^1.98.0"
   },
   "categories": [
+    "Programming Languages",
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:go"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "test-code.helloWorld",
-        "title": "Hello World"
+        "command": "aiCodeEditor.searchAndModify",
+        "title": "AI: Search and Modify Code"
+      },
+      {
+        "command": "aiCodeEditor.modifySelectedCode",
+        "title": "AI: Modify Selected Code"
+      },
+      {
+        "command": "aiCodeEditor.transformAtCursor",
+        "title": "AI: Modify Code at Cursor"
+      },
+      {
+        "command": "aiCodeEditor.setApiKey",
+        "title": "AI: Set API Key"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorHasSelection",
+          "command": "aiCodeEditor.modifySelectedCode",
+          "group": "navigation"
+        },
+        {
+          "command": "aiCodeEditor.transformAtCursor",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Code Editor",
+      "properties": {
+        "aiCodeEditor.llmModel": {
+          "type": "string",
+          "default": "gpt-4",
+          "description": "LLM model to use for code transformations"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "aiCodeEditor.searchAndModify",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
       }
     ]
   },
   "scripts": {
+    "setup": "node setup-tree-sitter.js",
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
@@ -27,6 +75,13 @@
     "lint": "eslint src",
     "test": "vscode-test"
   },
+ "files": [
+    "dist/**/*",
+    "node_modules/web-tree-sitter/tree-sitter.wasm",
+    "node_modules/tree-sitter-wasms/out/tree-sitter-javascript.wasm",
+    "node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm",
+    "node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm"
+ ],
   "devDependencies": {
     "@types/vscode": "^1.98.0",
     "@types/mocha": "^10.0.10",
@@ -53,6 +108,7 @@
     "ignore": "^7.0.3",
     "tree-sitter-wasms": "^0.1.11",
     "web-tree-sitter": "^0.22.6",
-    "tree-sitter": "^0.22.4"
+    "tree-sitter": "^0.22.4",
+    "tree-sitter-typescript": "^0.20.0"
   }
 }

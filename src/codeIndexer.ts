@@ -6,7 +6,6 @@ import {
   LanguageParser,
 } from "./tree-sitter/languageParser";
 
-// Interface to represent a code node for indexing
 interface CodeNode {
   id: string;
   type: string;
@@ -21,20 +20,17 @@ interface CodeNode {
   parent?: CodeNode;
 }
 
-// Interface for query results
 interface QueryResult {
   node: CodeNode;
   score: number;
   matches: string[];
 }
 
-// Class to handle code indexing and searching
 export class CodeIndexer {
   private parsers: LanguageParser | null = null;
   private fileIndex: Map<string, CodeNode> = new Map();
   private nodeIndex: Map<string, CodeNode> = new Map();
 
-  // Initialize the indexer with tree-sitter parsers
   async initialize(workspaceFolders: string[]): Promise<void> {
     console.log("Initializing CodeIndexer with folders:", workspaceFolders);
     const allFiles = this.getAllFiles(workspaceFolders);
@@ -44,16 +40,15 @@ export class CodeIndexer {
     try {
       this.parsers = await loadRequiredLanguageParsers(allFiles);
       console.log("Language parsers loaded successfully");
-      console.log(
-        "Available parsers:",
-        Array.from(this.parsers.parsers.keys())
-      );
+      //Log only keys, query is too much.
+      if (this.parsers) {
+        console.log("Available parsers:", Object.keys(this.parsers));
+      }
     } catch (error) {
       console.error("Failed to load language parsers:", error);
       throw error;
     }
 
-    // Index all files
     console.log("Starting to index files...");
     for (const file of allFiles) {
       console.log(`Indexing file: ${file}`);
@@ -71,30 +66,33 @@ export class CodeIndexer {
     );
   }
 
-  // Get all files recursively from workspace folders
   private getAllFiles(folders: string[]): string[] {
     console.log("Scanning folders for files:", folders);
     const files: string[] = [];
 
     const processFolder = (folder: string) => {
       console.log(`Processing folder: ${folder}`);
-      const items = fs.readdirSync(folder);
+      try {
+        const items = fs.readdirSync(folder);
 
-      for (const item of items) {
-        const itemPath = path.join(folder, item);
-        const stats = fs.statSync(itemPath);
+        for (const item of items) {
+          const itemPath = path.join(folder, item);
+          const stats = fs.statSync(itemPath);
 
-        if (
-          stats.isDirectory() &&
-          !item.startsWith(".") &&
-          item !== "node_modules"
-        ) {
-          console.log(`Found subfolder: ${itemPath}`);
-          processFolder(itemPath);
-        } else if (stats.isFile() && this.isSupportedFileType(itemPath)) {
-          console.log(`Found supported file: ${itemPath}`);
-          files.push(itemPath);
+          if (
+            stats.isDirectory() &&
+            !item.startsWith(".") &&
+            item !== "node_modules"
+          ) {
+            console.log(`Found subfolder: ${itemPath}`);
+            processFolder(itemPath);
+          } else if (stats.isFile() && this.isSupportedFileType(itemPath)) {
+            console.log(`Found supported file: ${itemPath}`);
+            files.push(itemPath);
+          }
         }
+      } catch (error) {
+        console.error(`Error reading folder ${folder}:`, error);
       }
     };
 
@@ -106,13 +104,11 @@ export class CodeIndexer {
     return files;
   }
 
-  // Check if file is a supported type
   private isSupportedFileType(filePath: string): boolean {
     const ext = path.extname(filePath).toLowerCase().slice(1);
     return ["js", "jsx", "ts", "tsx", "go"].includes(ext);
   }
 
-  // Index a single file
   async indexFile(filePath: string): Promise<void> {
     console.log(`Starting to index file: ${filePath}`);
     if (!this.parsers) {
@@ -122,16 +118,14 @@ export class CodeIndexer {
 
     const ext = path.extname(filePath).toLowerCase().slice(1);
     console.log(`File extension: ${ext}`);
-    console.log(
-      `Available parsers: ${Array.from(this.parsers.parsers.keys())}`
-    );
 
-    const parser = this.parsers.parsers.get(ext);
-
-    if (!parser) {
-      console.error(`No parser available for ${ext} files`);
-      throw new Error(`No parser available for ${ext} files`);
+    const parserEntry = this.parsers[ext];
+    if (!parserEntry) {
+      console.warn(`No parser available for ${ext} files`); // Use warn here to not break execution
+      return;
     }
+
+    const { parser, query } = parserEntry;
 
     console.log(`Using parser for ${ext} files`);
 
@@ -141,7 +135,7 @@ export class CodeIndexer {
       console.log(`File content length: ${fileContent.length} characters`);
 
       console.log("Parsing file content...");
-      const tree = parser.parser.parse(fileContent) as ParserModule.Tree;
+      const tree = parser.parse(fileContent) as ParserModule.Tree;
       console.log("File parsed successfully");
 
       console.log("Converting to CodeNode...");
@@ -161,7 +155,6 @@ export class CodeIndexer {
     }
   }
 
-  // Convert tree-sitter node to our CodeNode format
   private convertToCodeNode(
     node: any,
     filePath: string,
@@ -181,7 +174,6 @@ export class CodeIndexer {
       children: [],
     };
 
-    // Extract name for certain node types
     if (
       [
         "function_declaration",
@@ -198,7 +190,6 @@ export class CodeIndexer {
       }
     }
 
-    // Process children
     for (let i = 0; i < node.childCount; i++) {
       const child = node.child(i);
       if (child && child.type !== "comment") {
@@ -211,7 +202,6 @@ export class CodeIndexer {
     return codeNode;
   }
 
-  // Index a node and all its children
   private indexNode(node: CodeNode): void {
     this.nodeIndex.set(node.id, node);
 
@@ -220,13 +210,11 @@ export class CodeIndexer {
     }
   }
 
-  // Search for code nodes matching a query
   async search(query: string): Promise<QueryResult[]> {
     const results: QueryResult[] = [];
     const queryTerms = query.toLowerCase().split(/\s+/);
 
     for (const node of this.nodeIndex.values()) {
-      // Skip very small nodes
       if (node.text.length < 10) continue;
 
       const nodeText = node.text.toLowerCase();
@@ -247,15 +235,12 @@ export class CodeIndexer {
       }
     }
 
-    // Sort by score descending
     return results.sort((a, b) => b.score - a.score);
   }
 
-  // Calculate relevance score for a node
   private calculateScore(node: CodeNode, matchingTerms: string[]): number {
     let score = matchingTerms.length;
 
-    // Prefer functions, methods, classes
     if (
       [
         "function_declaration",
@@ -266,13 +251,11 @@ export class CodeIndexer {
       score *= 2;
     }
 
-    // Prefer smaller chunks of code (but not too small)
     const lines = node.endLine - node.startLine + 1;
     if (lines <= 30 && lines >= 3) {
       score *= 1.5;
     }
 
-    // If the node has a name, and the name matches, boost score
     if (node.name) {
       const matchesName = matchingTerms.some((term) =>
         node.name?.toLowerCase().includes(term)
@@ -286,7 +269,6 @@ export class CodeIndexer {
     return score;
   }
 
-  // Get a code node by its position in a file
   getNodeAtPosition(
     filePath: string,
     line: number,
@@ -298,13 +280,11 @@ export class CodeIndexer {
     return this.findNodeAtPosition(rootNode, line, column);
   }
 
-  // Find the most specific node at a position
   private findNodeAtPosition(
     node: CodeNode,
     line: number,
     column: number
   ): CodeNode | null {
-    // Check if position is within this node
     if (
       line < node.startLine ||
       (line === node.startLine && column < node.startCol) ||
@@ -314,7 +294,6 @@ export class CodeIndexer {
       return null;
     }
 
-    // Check children for more specific nodes
     for (const child of node.children) {
       const childResult = this.findNodeAtPosition(child, line, column);
       if (childResult) {
@@ -322,23 +301,18 @@ export class CodeIndexer {
       }
     }
 
-    // If no child contains the position, return this node
     return node;
   }
 
-  // Update index when a file changes
   async updateFile(filePath: string): Promise<void> {
-    // Remove all nodes from this file
     const oldRootNode = this.fileIndex.get(filePath);
     if (oldRootNode) {
       this.removeNodeFromIndex(oldRootNode);
     }
 
-    // Re-index the file
     await this.indexFile(filePath);
   }
 
-  // Remove a node and all its children from the index
   private removeNodeFromIndex(node: CodeNode): void {
     this.nodeIndex.delete(node.id);
 
@@ -347,13 +321,11 @@ export class CodeIndexer {
     }
   }
 
-  // Get the code text for a specific node
   getNodeText(nodeId: string): string | null {
     const node = this.nodeIndex.get(nodeId);
     return node ? node.text : null;
   }
 
-  // Get the position info needed to insert code
   getNodePosition(nodeId: string): {
     filePath: string;
     startLine: number;
