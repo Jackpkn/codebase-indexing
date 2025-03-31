@@ -19,7 +19,7 @@ export class LlmService {
 
   constructor(options: LlmServiceOptions) {
     this.options = options;
-    this.apiKey = "AIzaSyDcxrWY7s5JE6uCG7sO9krVXYdBDVLZPZU";
+    this.apiKey = "";
   }
 
   // Transform code using an LLM
