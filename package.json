@@ -94,7 +94,6 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "@ai-sdk/google": "^1.2.4",
     "@types/get-folder-size": "^3.0.4",
     "chokidar": "^4.0.1",
     "diff": "^5.2.0",

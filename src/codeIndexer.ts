@@ -38,7 +38,8 @@ export class CodeIndexer {
 
     console.log("Loading language parsers...");
     try {
-      this.parsers = await loadRequiredLanguageParsers(allFiles);
+      const { parsers } = await loadRequiredLanguageParsers(allFiles);
+      this.parsers = parsers;
       console.log("Language parsers loaded successfully");
       //Log only keys, query is too much.
       if (this.parsers) {
