@@ -174,12 +174,16 @@ export class CodeIndexer {
       children: [],
     };
 
+    // Extract name for various node types
     if (
       [
         "function_declaration",
         "method_definition",
         "class_declaration",
         "variable_declaration",
+        "interface_declaration", // Added for interfaces
+        "type_alias", // Added for type aliases
+        "property_signature", // Added for interface properties
       ].includes(node.type)
     ) {
       const nameNode = node.childForFieldName
@@ -187,9 +191,23 @@ export class CodeIndexer {
         : null;
       if (nameNode) {
         codeNode.name = nameNode.text;
+      } else {
+        // Fallback for property signatures that might not have childForFieldName
+        for (let i = 0; i < node.childCount; i++) {
+          const child = node.child(i);
+          if (
+            child &&
+            (child.type === "property_identifier" ||
+              child.type === "type_identifier")
+          ) {
+            codeNode.name = child.text;
+            break;
+          }
+        }
       }
     }
 
+    // Process all children
     for (let i = 0; i < node.childCount; i++) {
       const child = node.child(i);
       if (child && child.type !== "comment") {
@@ -201,7 +219,42 @@ export class CodeIndexer {
 
     return codeNode;
   }
+  // Add this new method for scoring interfaces and types
+  private calculateSpecialTypeScore(
+    node: CodeNode,
+    queryTerms: string[]
+  ): number {
+    let score = 1.0;
 
+    // Check if any of the query terms match properties within the interface/type
+    const nodeText = node.text.toLowerCase();
+    const matchingTerms = queryTerms.filter((term) => nodeText.includes(term));
+
+    score += matchingTerms.length * 0.5;
+
+    // Boost score for interfaces/types with a name that matches a query term
+    if (node.name) {
+      const matchesName = queryTerms.some((term) =>
+        node.name?.toLowerCase().includes(term)
+      );
+
+      if (matchesName) {
+        score *= 2;
+      }
+    }
+
+    // Look for property names in the interface that match query terms
+    const propertyMatches = node.children.filter(
+      (child) =>
+        child.type === "property_signature" &&
+        child.name &&
+        queryTerms.some((term) => child.name?.toLowerCase().includes(term))
+    ).length;
+
+    score += propertyMatches * 0.75;
+
+    return score;
+  }
   private indexNode(node: CodeNode): void {
     this.nodeIndex.set(node.id, node);
 
@@ -211,15 +264,64 @@ export class CodeIndexer {
   }
 
   async search(query: string): Promise<QueryResult[]> {
+    console.log(`Starting search for query: "${query}"`);
     const results: QueryResult[] = [];
-    const queryTerms = query.toLowerCase().split(/\s+/);
 
+    // Normalize query
+    const searchQueryLower = query.toLowerCase().trim();
+    // Split into terms for more flexible matching
+    const queryTerms = searchQueryLower.split(/\s+/);
+
+    console.log("Query terms:", queryTerms);
+
+    // Create a map to track nodes we've already added to avoid duplicates
+    const addedNodes = new Map<string, boolean>();
+
+    // First pass: Look for exact matches with the full query
     for (const node of this.nodeIndex.values()) {
-      if (node.text.length < 10) continue;
+      const nodeText = node.text.toLowerCase();
+      const nodeType = node.type.toLowerCase();
+      const nodeName = node.name?.toLowerCase() || "";
+
+      // Check for exact matches in text, type, or name
+      if (
+        nodeText.includes(searchQueryLower) ||
+        nodeType.includes(searchQueryLower) ||
+        nodeName.includes(searchQueryLower)
+      ) {
+        const score = this.calculateScore(node, queryTerms);
+
+        if (score > 0 && !addedNodes.has(node.id)) {
+          addedNodes.set(node.id, true);
+          results.push({
+            node,
+            score: score * 2, // Prioritize exact matches
+            matches: [searchQueryLower],
+          });
+          console.log(
+            `Found exact match in node: ${node.id}, type: ${node.type}, name: ${
+              node.name || "unnamed"
+            }`
+          );
+        }
+      }
+    }
+
+    // Second pass: Look for partial matches using terms
+    for (const node of this.nodeIndex.values()) {
+      // Skip if we've already added this node
+      if (addedNodes.has(node.id)) continue;
 
       const nodeText = node.text.toLowerCase();
-      const matchingTerms = queryTerms.filter((term) =>
-        nodeText.includes(term)
+      const nodeType = node.type.toLowerCase();
+      const nodeName = node.name?.toLowerCase() || "";
+
+      // Calculate matching terms
+      const matchingTerms = queryTerms.filter(
+        (term) =>
+          nodeText.includes(term) ||
+          nodeType.includes(term) ||
+          nodeName.includes(term)
       );
 
       if (matchingTerms.length > 0) {
@@ -231,13 +333,56 @@ export class CodeIndexer {
             score,
             matches: matchingTerms,
           });
+          console.log(
+            `Found partial match in node: ${node.id}, type: ${
+              node.type
+            }, name: ${node.name || "unnamed"}`
+          );
         }
       }
     }
 
+    // Third pass: Special handling for interfaces and types
+    if (
+      searchQueryLower.includes("interface") ||
+      searchQueryLower.includes("type")
+    ) {
+      for (const node of this.nodeIndex.values()) {
+        // Skip if we've already added this node
+        if (addedNodes.has(node.id)) continue;
+
+        // Look specifically for interface_declaration and type_alias nodes
+        if (
+          node.type === "interface_declaration" ||
+          node.type === "type_alias"
+        ) {
+          const score = this.calculateSpecialTypeScore(node, queryTerms);
+
+          if (score > 0) {
+            results.push({
+              node,
+              score: score * 1.5, // Boost for interfaces/types when explicitly looking for them
+              matches: ["interface"],
+            });
+            console.log(
+              `Found interface/type match: ${node.id}, type: ${
+                node.type
+              }, name: ${node.name || "unnamed"}`
+            );
+          }
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      console.log("No matching code found.");
+    } else {
+      console.log(`Search found ${results.length} results.`);
+    }
+
+    // Sort by score (highest first)
     return results.sort((a, b) => b.score - a.score);
   }
-
   private calculateScore(node: CodeNode, matchingTerms: string[]): number {
     let score = matchingTerms.length;
 

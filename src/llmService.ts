@@ -1,4 +1,5 @@
 // Service for interacting with LLMs (e.g., OpenAI)
+
 export interface LlmServiceOptions {
   apiKey: string;
   model: string;
@@ -14,9 +15,11 @@ export interface CodeTransformRequest {
 
 export class LlmService {
   private options: LlmServiceOptions;
+  private apiKey: string;
 
   constructor(options: LlmServiceOptions) {
     this.options = options;
+    this.apiKey = "AIzaSyDcxrWY7s5JE6uCG7sO9krVXYdBDVLZPZU";
   }
 
   // Transform code using an LLM
@@ -51,35 +54,62 @@ export class LlmService {
 
   // Send the prompt to the LLM API
   private async sendToLlm(prompt: string): Promise<string> {
-    // This is a placeholder - implement with your preferred LLM API
-    // Example with a fake OpenAI-like API:
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.options.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.options.model,
-        messages: [
-          { role: "system", content: "You are a coding assistant." },
-          { role: "user", content: prompt },
-        ],
-        max_tokens: this.options.maxTokens || 2048,
-        temperature: this.options.temperature || 0.7,
-      }),
+    console.log("LLM Prompt:", prompt);
+
+    const requestBody = JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    console.log("Full LLM Request Body (Stringified):", requestBody);
+
+    try {
+      const response = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: requestBody,
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text(); // Get the error message
+        console.error("Full API Response:", {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+          body: errorText, // Include the response body
+        });
+        throw new Error(
+          `API error: ${response.status} ${response.statusText}: ${errorText}`
+        );
+      }
+
+      interface LlmApiResponse {
+        candidates: { content: { parts: { text: string }[] } }[];
+      }
+
+      const data: LlmApiResponse = (await response.json()) as LlmApiResponse;
+      const rawResponse = data.candidates[0]?.content.parts[0]?.text || "";
+      console.log("LLM Raw Response:", rawResponse);
+      return rawResponse;
+    } catch (error) {
+      console.error("Error sending to LLM:", error);
+      throw error; // Re-throw the error to be caught in transformCode
     }
-
-    const data = (await response.json()) as {
-      choices: { message: { content: string } }[];
-    };
-    return data.choices[0].message.content;
   }
-
+  async getCompletion(prompt: string): Promise<string> {
+    try {
+      const response = await this.sendToLlm(prompt);
+      return response;
+    } catch (error) {
+      console.error("Error getting completion:", error);
+      throw new Error(`Failed to get completion: ${error}`);
+    }
+  }
   // Extract just the code from the LLM response
   private extractCodeFromResponse(response: string): string {
     // If the response contains code blocks, extract the code
